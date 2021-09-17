@@ -251,8 +251,87 @@ def collect_fp(fp_all_dir, prefix, fin_xyz_filename):
                 with open(pos_list[0], "rb") as infbj:
                     shutil.copyfileobj(infbj, outfbj)
 
+def get_cpk_converge_and_walltime(cp2k_output_file):
+    f = open(cp2k_output_file, "r")
+    is_converge = True
+    while True:
+        content = f.readline()
+        if 'SCF run NOT converged' in content:
+            is_converge = False
+        if 'T I M I N G' in content:
+            for jj in range(5):
+                content = f.readline()
+            walltime = content.split()[-1]
+            if is_converge:
+                return walltime, '1'
+            else:
+                return walltime, '0'
+            break
+
+def collect_cp2k_walltime(dpgen_dir, target_dir):
+    """ collect cp2k fp wall time and convergence
+    usage: 
+        collect_cp2k_wall_time(".", "fp_collect")
+        will make dir 'fp_collect';
+        write file 'fp_collect/cp2k_walltime-iter*' for each iteration, 
+        data format (walltime, convergence) ~ (float, 0/1)
+    """
+    create_path(target_dir)
+    iter_dir_list = glob.glob(os.path.join(dpgen_dir, "iter.*"))
+    iter_dir_list.sort()
+    iter_dir_list = iter_dir_list[0:-1]
+    for iter_dir in iter_dir_list:
+        iter_bn = os.path.basename(iter_dir)
+        print("Now working on {:s}".format(iter_bn))
+        fp_output_dir_list = glob.glob(os.path.join(iter_dir, "02.fp", "task.0*/output"))
+        fp_output_dir_list.sort()
+        output = open(os.path.join(target_dir, "cp2k_walltime-{:s}".format(iter_bn)), 'w')
+        for fp_output in fp_output_dir_list:
+            time, convergence = get_cpk_converge_and_walltime(fp_output)
+            output.writelines("{0:s}\t{1:s}".format(time, convergence)+"\n")
+        output.close()
+            
+
+def plot_fp_time(target_dir):
+    fp_list = glob.glob(os.path.join(target_dir, "*iter.*"))
+    fp_list.sort()
+    numb_fp = len(fp_list)
+    numb_iter = [os.path.basename(jj) for jj in fp_list]
+    numb_iter = [int(jj.split('.')[-1]) for jj in numb_iter]
+
+    fig = plt.figure(figsize=(4, 4*numb_fp))
+    gs = GridSpec(numb_fp, 1, figure=fig) 
+
+    for iter_idx in range(numb_fp):
+        fptime_file = fp_list[iter_idx]
+        fptime = np.loadtxt(fptime_file, usecols = 0)
+        fptime = fptime/60
+        task = np.arange(len(fptime))
+        mean = fptime.mean()
+        isconv = np.loadtxt(fptime_file, usecols = 1)
+        conv = (isconv == 1)
+        not_conv = (isconv == 0)
+        tmp = fptime * isconv
+        mean_exclude = tmp.mean()
+        print("now working on iter-{:06d}".format(numb_iter[iter_idx]))
+        # plot each fp
+        ax = fig.add_subplot(gs[iter_idx])
+        ax.scatter(task[conv], fptime[conv], color = 'b',label="converged")
+        ax.scatter(task[not_conv], fptime[not_conv], color = 'r',label="not converged")
+        ax.axhline(y=mean, color='k', label="mean cal time")
+        ax.set_title('iteration{0}, mean cal time is {1:.2f}'.format(numb_iter[iter_idx], mean))
+        ax.set_xlabel("task number")
+        ax.set_ylabel("CP2K wall time [min]")
+        ax.legend()
+
+    gs.tight_layout(fig)
+    fig.savefig(os.path.join(target_dir, "all-fptime.png"), format="PNG", dpi=300)
+
 if __name__ == '__main__':
     #collect_all_lcurves(".", "lcurve_collect")
     #plot_all_lcurves("lcurve_collect", 4)
     collect_all_model_devi(".", "model_devi_collect")
     plot_all_model_devi("model_devi_collect", 0.3, 0.6)
+    collect_cp2k_walltime(".", "fp_collect")
+    plot_fp_time("fp_collect")
+
