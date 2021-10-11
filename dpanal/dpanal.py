@@ -2,8 +2,11 @@ import glob, os, shutil
 import numpy as np
 import matplotlib.pyplot as plt
 import json
+import dpdata
+from ase import Atoms
+from ase.io import write, read
 from matplotlib.gridspec import GridSpec
-
+from random import sample
 
 def list_uniq(list_var):
     list_var = set(list_var)
@@ -326,6 +329,19 @@ def plot_fp_time(target_dir):
 
     gs.tight_layout(fig)
     fig.savefig(os.path.join(target_dir, "all-fptime.png"), format="PNG", dpi=300)
+
+def random_ex_data(data_dir, ex_num):
+    data=dpdata.LabeledSystem(data_dir, fmt="deepmd/npy")
+    new_data = None
+    tot_num = len(data)
+    random_list = sample(range(tot_num), ex_num)
+    for i in random_list:
+        if new_data is None:
+            new_data = data[i]
+        else:
+            new_data += data[i]
+    new_data.to_deepmd_npy("new_data") 
+    print(new_data['cells'][0])
 
 if __name__ == '__main__':
     #collect_all_lcurves(".", "lcurve_collect")
