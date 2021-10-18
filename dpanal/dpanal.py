@@ -1,4 +1,4 @@
-import glob, os, shutil
+import glob, os, shutil, sys
 import numpy as np
 import matplotlib.pyplot as plt
 import json
@@ -7,6 +7,11 @@ from ase import Atoms
 from ase.io import write, read
 from matplotlib.gridspec import GridSpec
 from random import sample
+
+# conversion unit here, modify if you need
+au2eV = 2.72113838565563E+01
+au2A = 5.29177208590000E-01
+
 
 def list_uniq(list_var):
     list_var = set(list_var)
@@ -113,83 +118,104 @@ def plot_all_model_devi(target_dir, trust_lo, trust_hi):
     md_list = glob.glob(os.path.join(target_dir, "model_devi.out*"))
     md_list.sort()
     iter_list = []
+    task_list = []
     temp_list = []
     for md in md_list:
         md_split = md.split("-")
         iter_list.append(md_split[1])
+        task_list.append(md_split[2])
         temp_list.append(md_split[3])
     # remove duplicates
     iter_list = list_uniq(iter_list)
+    task_list = list_uniq(task_list)
     temp_list = list_uniq(temp_list)
-    
+    # get sys_list
+    sys_list = []
+    for task in task_list:
+        sys_list.append(task.split(".")[1])
+    # remove duplicates 
+    sys_list = list_uniq(sys_list)
+    sys_list.sort()
+      
     # get parameter 
     numb_iter = len(iter_list)
 
     bins = np.linspace(0.00, 1, 400)
     
     for temp in temp_list:
-        model_devi_data = []
-        for _iter in iter_list:
-            md_file_list = glob.glob(os.path.join(target_dir, "*{0}*{1}*".format(_iter, temp)))
-            one_iter_data = []
-            # extract data
-            for md_file in md_file_list:
-                one_iter_data.append(np.loadtxt(md_file, usecols=4))
-            one_iter_data = np.array(one_iter_data)
-            one_iter_data = one_iter_data.flatten()
-            model_devi_data.append(one_iter_data)
-        iteration_list = []
-        for i in range(numb_iter):
-            iteration_list.append(str(i))
-        #calculate ratio
-        accurate_ratio = []
-        for i in range(numb_iter):
-            tmp = model_devi_data[i]
-            ratio = len(tmp[tmp<trust_lo])/len(tmp)
-            accurate_ratio.append(ratio*100)
-        candidate_ratio = []
-        for i in range(numb_iter):
-            tmp = model_devi_data[i]
-            ratio = len(tmp[np.logical_and( tmp>=trust_lo, tmp <=trust_hi)])/len(tmp)
-            candidate_ratio.append(ratio*100)
-        failed_ratio = []
-        for i in range(numb_iter):
-            tmp = model_devi_data[i]
-            ratio = len(tmp[tmp>trust_hi])/len(tmp)
-            failed_ratio.append(ratio*100)
-        #plot the figure
-        plt.figure(figsize=(14,7))
-        plt.suptitle("Active Learning in {0}K".format(temp), fontsize = 25)
-        #subplot left
-        plt.subplot(1, 2, 1)
-        for i in list(range(numb_iter)):
-            y, x = np.histogram(model_devi_data[i], bins)
-            tot_num = len(model_devi_data[i])
-            plt.plot(x[:-1], y/tot_num, alpha=1, label = "iter "+str(i))
-        # text setting
-        plt.vlines(trust_lo, 0, 0.2)
-        plt.vlines(trust_hi, 0, 0.2)
-        plt.text(0.00, 0.16, "Accurate", fontsize=15)
-        plt.text(trust_lo, 0.16, "Candidate", fontsize=15)
-        plt.text(trust_hi, 0.16, "Fail", fontsize=15)
-        plt.legend(prop={'size': 15})
-        plt.xlabel("max force deviation[eV/A]", fontsize = 20)
-        plt.ylabel("fraction of frames", fontsize = 20)
-        plt.title("Histograms of ensemble deviation", fontsize = 20)
-        plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
-        #subplot right
-        plt.subplot(1, 2, 2)
-        plt.plot(iteration_list, accurate_ratio, alpha=0.6, marker='o', label = "Accurate" )
-        plt.plot(iteration_list, candidate_ratio, alpha=0.6, marker='o', label = "Candidate"  )
-        plt.plot(iteration_list, failed_ratio, alpha=0.6, marker='o', label = "Failed" )
-    
-        plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
-        plt.legend(prop={'size': 20})
-        plt.xlabel("iteration number", fontsize = 20)
-        plt.ylabel("fraction of frames[%]", fontsize = 20)
-        plt.title("Fraction Change Over Iteration", fontsize = 20)
-        plt.tight_layout()
-        plt.savefig(os.path.join(target_dir, "dpgen_model_devi_{0}K".format(temp)), dpi=400)
+        for _sys in sys_list:
+            model_devi_data = []
+            for _iter in iter_list:
+                md_file_list = glob.glob(os.path.join(target_dir, "*{0}*task.{1}*-{2}*".format(_iter, _sys, temp)))
+                one_iter_data = []
+                # extract data
+                for md_file in md_file_list:
+                    one_iter_data.append(np.loadtxt(md_file, usecols=4))
+                one_iter_data = np.array(one_iter_data)
+                one_iter_data = one_iter_data.flatten()
+                model_devi_data.append(one_iter_data)
+            iteration_list = []
+            for i in range(numb_iter):
+                iteration_list.append(str(i))
+            #calculate ratio
+            accurate_ratio = []
+            for i in range(numb_iter):
+                tmp = model_devi_data[i]
+                ratio = len(tmp[tmp<trust_lo])/len(tmp)
+                accurate_ratio.append(ratio*100)
+            candidate_ratio = []
+            for i in range(numb_iter):
+                tmp = model_devi_data[i]
+                ratio = len(tmp[np.logical_and( tmp>=trust_lo, tmp <=trust_hi)])/len(tmp)
+                candidate_ratio.append(ratio*100)
+            failed_ratio = []
+            for i in range(numb_iter):
+                tmp = model_devi_data[i]
+                ratio = len(tmp[tmp>trust_hi])/len(tmp)
+                failed_ratio.append(ratio*100)
+            print("DPGEN Exploration for System {0} at {1}K".format(_sys, temp))
+            print("-"*50)
+            idx = 0
+            for ac, ca, fa in zip(accurate_ratio, candidate_ratio, failed_ratio):
+                print("{0}".format(iter_list[idx]))
+                print("accurate : {0:6.2f}%".format(ac))
+                print("candidate: {0:6.2f}%".format(ca))
+                print("failed   : {0:6.2f}%".format(fa))
+                idx += 1
+
+            #plot the figure
+            plt.figure(figsize=(14,7))
+            plt.suptitle("Active Learning in {0}K".format(temp), fontsize = 25)
+            #subplot left
+            plt.subplot(1, 2, 1)
+            for i in list(range(numb_iter)):
+                y, x = np.histogram(model_devi_data[i], bins)
+                tot_num = len(model_devi_data[i])
+                plt.plot(x[:-1], y/tot_num, alpha=1, label = "iter "+str(i))
+            # text setting
+            plt.vlines(trust_lo, 0, 0.2)
+            plt.vlines(trust_hi, 0, 0.2)
+            plt.text(0.00, 0.16, "Accurate", fontsize=15)
+            plt.text(trust_lo, 0.16, "Candidate", fontsize=15)
+            plt.text(trust_hi, 0.16, "Fail", fontsize=15)
+            plt.legend(prop={'size': 15})
+            plt.xlabel("max force deviation[eV/A]", fontsize = 20)
+            plt.ylabel("fraction of frames", fontsize = 20)
+            plt.title("Histograms of ensemble deviation", fontsize = 20)
+            plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
+            #subplot right
+            plt.subplot(1, 2, 2)
+            plt.plot(iteration_list, accurate_ratio, alpha=0.6, marker='o', label = "Accurate" )
+            plt.plot(iteration_list, candidate_ratio, alpha=0.6, marker='o', label = "Candidate"  )
+            plt.plot(iteration_list, failed_ratio, alpha=0.6, marker='o', label = "Failed" )
+        
+            plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
+            plt.legend(prop={'size': 20})
+            plt.xlabel("iteration number", fontsize = 20)
+            plt.ylabel("fraction of frames[%]", fontsize = 20)
+            plt.title("Fraction Change Over Iteration", fontsize = 20)
+            plt.tight_layout()
+            plt.savefig(os.path.join(target_dir, "dpgen_model_devi_{0}K_sys{1}".format(temp, _sys)), dpi=400)
          
     # gether data according to temperature
    # md_name_list = np.array(md_name_list)
@@ -219,6 +245,82 @@ def to_xyz(dpmd_data_dir):
 
     write("reftraj.xyz", poses)
 
+def xyz2npy(pos, atom_num, output, unit_convertion=1.0):
+    total = np.empty((0,atom_num*3), float)
+    for single_pos in pos:
+        tmp=single_pos.get_positions()
+        tmp=np.reshape(tmp,(1,atom_num*3))
+        total = np.concatenate((total,tmp), axis=0)
+    total = total * unit_convertion
+    np.save(output, total)
+
+def energy2npy(pos, output, unit_convertion=1.0):
+    total = np.empty((0), float)
+    for single_pos in pos:
+        tmp=single_pos.info.pop('E')
+        tmp=np.array(tmp,dtype="float")
+        tmp=np.reshape(tmp,1)
+        total = np.concatenate((total,tmp), axis=0)
+    total = total * unit_convertion
+    np.save(output, total)
+
+def cell2npy(pos, output, unit_convertion=1.0):
+    total = np.empty((0,9),float)
+    frame_num = len(pos)
+    cell = pos[0].get_cell()
+    cell = cell.reshape(1, 9)
+    for frame in range(frame_num):
+        total = np.concatenate((total,cell),axis=0)
+    total = total * unit_convertion
+    np.save(output, total)
+
+def type_raw(single_pos, output, output_2):
+    element = single_pos.get_chemical_symbols()
+    element = np.array(element)
+    tmp, indice = np.unique(element, return_inverse=True)
+    np.savetxt(output, indice, fmt='%s',newline=' ')
+    np.savetxt(output_2, tmp, fmt='%s')
+
+def cp2k_xyz_to_dpmd(data_path, atom_num, cell):
+    # read the pos and frc
+    data_path = os.path.abspath(data_path)
+    pos_path = os.path.join(data_path, "*pos-1.xyz")
+    frc_path = os.path.join(data_path, "*frc-1.xyz")
+    print("you are now working on: {0}".format(data_path))
+    pos_path = glob.glob(pos_path)[0]
+    print("The path of position file is {0}".format(pos_path))
+    frc_path = glob.glob(frc_path)[0]
+    print("The path of force file is {0}".format(frc_path))
+    pos = read(pos_path, index = ":" )
+    for i in pos:
+        i.set_cell(cell)
+        i.set_pbc(True)
+    frc = read(frc_path, index = ":" )
+    for i in frc:
+        i.set_cell(cell)
+        i.set_pbc(True)
+    # numpy path
+    set_path = os.path.join(data_path, "set.000")
+    if os.path.isdir(set_path):
+        print("detect directory exists\n now remove it")
+        shutil.rmtree(set_path)
+        os.mkdir(set_path)
+    else:
+        print("detect directory doesn't exist\n now create it")
+        os.mkdir(set_path)
+    type_path = os.path.join(data_path, "type.raw")
+    type_map_path = os.path.join(data_path, "type_map.raw")
+    coord_path = os.path.join(set_path, "coord.npy")
+    force_path = os.path.join(set_path, "force.npy")
+    box_path = os.path.join(set_path, "box.npy")
+    energy_path = os.path.join(set_path, "energy.npy")
+    #tranforrmation
+    xyz2npy(pos, atom_num, coord_path)
+    xyz2npy(frc, atom_num, force_path, au2eV/au2A)
+    energy2npy(pos, energy_path, au2eV)
+    cell2npy(pos, box_path)
+    type_raw(pos[0], type_path, type_map_path)
+
 
 def multiple_reftraj(reftraj_file, stride, other_files):
     """
@@ -239,20 +341,35 @@ def multiple_reftraj(reftraj_file, stride, other_files):
             dst = os.path.join(fp_dir, src)
             shutil.copyfile(src, dst)
 
-def collect_fp(fp_all_dir, prefix, fin_xyz_filename):
+def collect_fp(fp_all_dir, prefix, fin_xyz_prefix):
     """
     example:
-        collect_fp(".", "fp.", 'new.xyz')
+        collect_fp(".", "fp.", 'new')
     """
     fp_dir_list = glob.glob(os.path.join(fp_all_dir, "{0}[0-9][0-9][0-9]".format(prefix)))
     fp_dir_list.sort()
-    with open(fin_xyz_filename, "wb") as outfbj:
+    with open("{0}-pos-1.xyz".format(fin_xyz_prefix), "wb") as outfbj:
         for f in fp_dir_list:
             pos_list = glob.glob(os.path.join(f, "*pos-1.xyz"))
             print(pos_list)
             if pos_list:
                 with open(pos_list[0], "rb") as infbj:
                     shutil.copyfileobj(infbj, outfbj)
+    with open("{0}-frc-1.xyz".format(fin_xyz_prefix), "wb") as outfbj:
+        for f in fp_dir_list:
+            pos_list = glob.glob(os.path.join(f, "*frc-1.xyz"))
+            print(pos_list)
+            if pos_list:
+                with open(pos_list[0], "rb") as infbj:
+                    shutil.copyfileobj(infbj, outfbj)
+    with open("{0}-1.ener".format(fin_xyz_prefix), "wb") as outfbj:
+        for f in fp_dir_list:
+            pos_list = glob.glob(os.path.join(f, "*-1.ener"))
+            print(pos_list)
+            if pos_list:
+                with open(pos_list[0], "rb") as infbj:
+                    shutil.copyfileobj(infbj, outfbj)
+
 
 def get_cpk_converge_and_walltime(cp2k_output_file):
     f = open(cp2k_output_file, "r")
@@ -340,8 +457,29 @@ def random_ex_data(data_dir, ex_num):
             new_data = data[i]
         else:
             new_data += data[i]
-    new_data.to_deepmd_npy("new_data") 
+    return new_data
+
+def random_ex_data_to_dpmd(data_dir, ex_num):
+    new_data = random_ex_data(data_dir, ex_num)
+    new_data.to_deepmd_npy("new_data")
     print(new_data['cells'][0])
+
+def dpdata_to_poscar_md_init(data, ex_num, output_path):
+    new_data = None
+    tot_num = len(data)
+    random_list = sample(range(tot_num), ex_num)
+    for i in random_list:
+        if new_data is None:
+            new_data = data[i]
+        else:
+            new_data += data[i]
+   
+    for idx, i in enumerate(new_data):
+        filename = os.path.join(output_path, "POSCAR{0:03d}".format(idx))
+        i.to_vasp_poscar(filename)
+
+
+
 
 if __name__ == '__main__':
     #collect_all_lcurves(".", "lcurve_collect")
