@@ -7,6 +7,7 @@ from ase import Atoms
 from ase.io import write, read
 from matplotlib.gridspec import GridSpec
 from random import sample
+from matplotlib import cm
 
 # conversion unit here, modify if you need
 au2eV = 2.72113838565563E+01
@@ -114,6 +115,23 @@ def collect_all_model_devi(dpgen_dir, target_dir):
             dst = os.path.join(target_dir, "model_devi.out-{0}-{1}-{2}-{3}".format(iter_bn, md_bn, data['temps'], data['press']))
             shutil.copy(src, dst) 
 
+def cmap2colorlist(cmap_name, color_numb):
+    """gets a list of color from selected matplotlib cmap
+    'cmap_name': str, name of cmap, for example 'plasma'.
+                 See available cmaps in tutorial "Choosing Colormaps in Matplotlib"
+    'color_numb': int, length of desired color list
+    Returns to a numpy array. Its shape is (color_numb, 4), 
+    and each column (a (4,) vector) represents a color. 
+    example:
+        clist = cmap2colorlist('plasma', 4)
+        for ii in range(4):
+            ax.plot(x, y[ii], color=clist[ii])
+    """
+    colormap = cm.get_cmap(cmap_name, color_numb)
+    idx = np.arange(color_numb)
+    colorlist = colormap(idx)
+    return colorlist
+
 def plot_all_model_devi(target_dir, trust_lo, trust_hi):
     md_list = glob.glob(os.path.join(target_dir, "model_devi.out*"))
     md_list.sort()
@@ -151,7 +169,7 @@ def plot_all_model_devi(target_dir, trust_lo, trust_hi):
                 # extract data
                 for md_file in md_file_list:
                     one_iter_data.append(np.loadtxt(md_file, usecols=4))
-                one_iter_data = np.array(one_iter_data)
+                one_iter_data = np.concatenate(one_iter_data)
                 one_iter_data = one_iter_data.flatten()
                 model_devi_data.append(one_iter_data)
             iteration_list = []
@@ -184,38 +202,56 @@ def plot_all_model_devi(target_dir, trust_lo, trust_hi):
                 idx += 1
 
             #plot the figure
-            plt.figure(figsize=(14,7))
-            plt.suptitle("Active Learning in {0}K".format(temp), fontsize = 25)
+            colors = cmap2colorlist('plasma', numb_iter)
+            fig = plt.figure(figsize=(14,7))
+            fig.suptitle("Active Learning in {0}K".format(temp), fontsize = 25)
             #subplot left
-            plt.subplot(1, 2, 1)
+            max_y = []
+            ax = fig.add_subplot(1, 2, 1)
             for i in list(range(numb_iter)):
                 y, x = np.histogram(model_devi_data[i], bins)
                 tot_num = len(model_devi_data[i])
-                plt.plot(x[:-1], y/tot_num, alpha=1, label = "iter "+str(i))
+                ax.plot(x[:-1], y/tot_num, alpha=1, label = "iter "+str(i), color=colors[i])
+                max_y.append(y.max()/tot_num)
             # text setting
-            plt.vlines(trust_lo, 0, 0.2)
-            plt.vlines(trust_hi, 0, 0.2)
-            plt.text(0.00, 0.16, "Accurate", fontsize=15)
-            plt.text(trust_lo, 0.16, "Candidate", fontsize=15)
-            plt.text(trust_hi, 0.16, "Fail", fontsize=15)
-            plt.legend(prop={'size': 15})
-            plt.xlabel("max force deviation[eV/A]", fontsize = 20)
-            plt.ylabel("fraction of frames", fontsize = 20)
-            plt.title("Histograms of ensemble deviation", fontsize = 20)
-            plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
+            max_y = np.array(max_y, dtype=float)
+            accurate_left = 0.05 
+            candidate_left = trust_lo/1.
+            fail_left = (trust_hi + 0.2)/1.
+            top = 0.95
+            ax.set_ylim(0, 2*max_y.max())
+            ax.axvline(x=trust_lo, ymin=0, ymax=.8, color='k', ls='--')
+            ax.axvline(x=trust_hi, ymin=0, ymax=.8, color='k', ls='--')
+            ax.text(accurate_left, top, "Accurate", fontsize=15, 
+                    horizontalalignment='left', verticalalignment='center',
+                    transform=ax.transAxes
+                   )
+            ax.text(candidate_left, top, "Candidate", fontsize=15,
+                    horizontalalignment='left', verticalalignment='center',
+                    transform=ax.transAxes
+                   )
+            ax.text(fail_left, top, "Fail", fontsize=15,
+                    horizontalalignment='left', verticalalignment='center',
+                    transform=ax.transAxes
+                   )
+            ax.legend(prop={'size': 15})
+            ax.set_xlabel("max force deviation[eV/A]", fontsize = 20)
+            ax.set_ylabel("fraction of frames", fontsize = 20)
+            ax.set_title("Histograms of ensemble deviation", fontsize = 20)
+            ax.tick_params(axis = 'both', which = 'major', labelsize = 16)
             #subplot right
-            plt.subplot(1, 2, 2)
-            plt.plot(iteration_list, accurate_ratio, alpha=0.6, marker='o', label = "Accurate" )
-            plt.plot(iteration_list, candidate_ratio, alpha=0.6, marker='o', label = "Candidate"  )
-            plt.plot(iteration_list, failed_ratio, alpha=0.6, marker='o', label = "Failed" )
+            ax = fig.add_subplot(1, 2, 2)
+            ax.plot(iteration_list, accurate_ratio, alpha=0.6, marker='o', label = "Accurate" )
+            ax.plot(iteration_list, candidate_ratio, alpha=0.6, marker='o', label = "Candidate")
+            ax.plot(iteration_list, failed_ratio, alpha=0.6, marker='o', label = "Failed" )
         
-            plt.tick_params(axis = 'both', which = 'major', labelsize = 16)
-            plt.legend(prop={'size': 20})
-            plt.xlabel("iteration number", fontsize = 20)
-            plt.ylabel("fraction of frames[%]", fontsize = 20)
-            plt.title("Fraction Change Over Iteration", fontsize = 20)
-            plt.tight_layout()
-            plt.savefig(os.path.join(target_dir, "dpgen_model_devi_{0}K_sys{1}".format(temp, _sys)), dpi=400)
+            ax.tick_params(axis = 'both', which = 'major', labelsize = 16)
+            ax.legend(prop={'size': 20})
+            ax.set_xlabel("iteration number", fontsize = 20)
+            ax.set_ylabel("fraction of frames[%]", fontsize = 20)
+            ax.set_title("Fraction Change Over Iteration", fontsize = 20)
+            fig.tight_layout()
+            fig.savefig(os.path.join(target_dir, "dpgen_model_devi_{0}K_sys{1}".format(temp, _sys)), dpi=400)
          
     # gether data according to temperature
    # md_name_list = np.array(md_name_list)
